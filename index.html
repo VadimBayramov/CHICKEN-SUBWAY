@@ -11,11 +11,11 @@
     (function () {
       if (typeof window.openStore !== "function") {
         window.openStore = function (url) {
-          var DEFAULT_STORE_URL = "https://apps.apple.com/ru/app/id6747075934";
+          var DEFAULT_STORE_URL = "";
           var u = url || window.clickTag || window.STORE_URL || DEFAULT_STORE_URL;
           if (!u) return;
           try {
-            if (window.mraid && typeof window.mraid.open === "function") { window.mraid.open(u); return; }
+            if (window.mraid && typeof window.mraid.open === "function") { window.openStore(u); return; }
           } catch (e) { }
           try { openStore(u, "_blank"); } catch (e) { }
         };
@@ -1665,120 +1665,46 @@
     })();
   </script>
 
-  <!-- ironSource platform bootstrap -->
-  <script src="mraid.js"></script>
+  <!-- Moloco platform bootstrap -->
   <script>(function(){
-    try { document.documentElement.classList.add('is-ironsource'); } catch(e) {}
-    function openStore(url){
-      var u = url || (window.clickTag || window.STORE_URL || '');
-      if(!u) return;
-      if (window.mraid && (mraid.getState && (mraid.getState()==='default' || mraid.getState()==='expanded' || mraid.getState()==='resized') || true)) {
-        try { mraid.open(u); return; } catch(e) {}
-      }
-      try { window.open(u, '_blank'); } catch(e) {}
+    if(!window.FbPlayableAd){ window.FbPlayableAd = {}; }
+    if(typeof window.FbPlayableAd.onCTAClick !== 'function'){
+      window.FbPlayableAd.onCTAClick = function(){
+        // Moloco SDK handles redirection in production.
+      };
     }
-    window.openStore = openStore;
-
-    function onReady(){ document.documentElement.classList.add('mraid-ready'); }
-    if (window.mraid){
-      if (mraid.getState && (mraid.getState()==='default' || mraid.getState()==='expanded' || mraid.getState()==='resized')) { onReady(); }
-      else if (mraid.addEventListener){
-        mraid.addEventListener('ready', onReady);
-        mraid.addEventListener('stateChange', function(s){ if(s==='default'||s==='expanded'||s==='resized') onReady(); });
-      }
+    function molocoLog(msg){
+      try{
+        var ct = (window.clickTag||'');
+        var su = (window.STORE_URL||'');
+        var chosen = ct ? 'clickTag' : (su ? 'STORE_URL' : 'none');
+        console.log('[MOLOCO]', msg, 'chosen='+chosen, 'clickTag=', ct, 'STORE_URL=', su);
+      }catch(e){}
     }
+    window.openStore = function(){
+      if(window.FbPlayableAd && window.FbPlayableAd.onCTAClick) return window.FbPlayableAd.onCTAClick();
+    };
 
-    // Prevent long-press context menu / selection (common rejection on several SDKs)
-    try{ document.addEventListener('contextmenu', function(e){ e.preventDefault(); }, { capture:true }); }catch(e){}
-    try{ document.addEventListener('selectstart', function(e){ e.preventDefault(); }, { capture:true }); }catch(e){}
-    try{ document.addEventListener('dragstart', function(e){ e.preventDefault(); }, { capture:true }); }catch(e){}
-
-    // MRAID 3.0 audioVolumeChange listener (IronSource reviewers may validate it explicitly)
-    (function(){
-      if (window.__MRAID_AUDIOVOL_BRIDGE_INSTALLED__) return;
-      window.__MRAID_AUDIOVOL_BRIDGE_INSTALLED__ = true;
-      var tries = 0;
-      function tryAttach(){
-        tries++;
-        if(!window.mraid || typeof mraid.addEventListener !== 'function'){
-          if(tries < 50) return setTimeout(tryAttach, 100);
-          return;
-        }
-        function forward(volumePercentage){
-          try{
-            if(window.handleAudioVolumeChange && typeof window.handleAudioVolumeChange === 'function'){
-              window.handleAudioVolumeChange(volumePercentage);
-              return;
-            }
-          }catch(e){}
-          // Fallback: if game doesn't export a handler, at least pause all media when muted.
-          try{
-            if(volumePercentage === 0.0 || volumePercentage === 0 || volumePercentage === null){
-              document.querySelectorAll('audio, video').forEach(function(el){
-                try{ if(!el.paused) el.pause(); }catch(e){}
-              });
-            }
-          }catch(e){}
-        }
-        function attach(){
-          try{ mraid.addEventListener('audioVolumeChange', forward); }catch(e){}
-          // Best-effort initial query if host implements it (non-standard)
-          try{ if(typeof mraid.getAudioVolume === 'function') forward(mraid.getAudioVolume()); }catch(e){}
-        }
-        try{
-          if(mraid.getState && mraid.getState() === 'loading'){
-            try{ mraid.addEventListener('ready', attach); }catch(e){ attach(); }
-          } else {
-            attach();
+    // Ensure CTA is clickable and calls onCTAClick synchronously on user gesture
+    function bindMolocoCTA(){
+      var btn = document.getElementById('finish');
+      if(btn){ try{ btn.removeAttribute('disabled'); }catch(e){} btn.style.pointerEvents = 'auto'; }
+      var handler = function(ev){
+        var target = ev.target && (ev.target.closest ? ev.target.closest('#finish') : null);
+        if(target && target.id === 'finish'){
+          if(window.FbPlayableAd && typeof window.FbPlayableAd.onCTAClick === 'function'){
+            molocoLog('finish click -> FbPlayableAd.onCTAClick()');
+            try{ window.FbPlayableAd.onCTAClick(); }catch(e){}
+            ev.preventDefault();
+            ev.stopPropagation();
           }
-        }catch(e){ attach(); }
-      }
-      tryAttach();
-    })();
-
-    // Audio gate by first user gesture (cooperate with game orchestrator if present)
-    (function(){
-      if (window.__PLAYABLE_AUDIO_GATE) {
-        try { 
-          window.__PLAYABLE_AUDIO_GATE(); 
-          console.log('ironSource: Using existing __PLAYABLE_AUDIO_GATE from game');
-        } catch(e) {
-          console.error('ironSource: Failed to call __PLAYABLE_AUDIO_GATE', e);
         }
-        return; // CRITICAL: Exit early to avoid double audio gates
-      }
-      
-      console.log('ironSource: Installing fallback audio gate (no orchestrator found)');
-      var resumed=false; function resume(){
-        if(resumed) return; resumed=true;
-        try{ if(window.Howler && Howler.ctx && Howler.ctx.resume) Howler.ctx.resume(); }catch(e){}
-        try{ 
-          // Use shared context if available, otherwise create new one
-          var ctx = window.__sharedAudioContext;
-          if (!ctx && (window.AudioContext || window.webkitAudioContext)) {
-            ctx = new (window.AudioContext || window.webkitAudioContext)();
-            window.__sharedAudioContext = ctx;
-          }
-          if (ctx && ctx.resume) ctx.resume(); 
-        }catch(e){}
-        document.removeEventListener('pointerdown', resume, {capture:true});
-        document.removeEventListener('touchstart', resume, {capture:true});
-        document.documentElement.classList.add('game-started');
-      }
-      document.addEventListener('pointerdown', resume, {once:true, capture:true});
-      document.addEventListener('touchstart', resume, {once:true, capture:true});
-      // Do not auto-mute on visibility change; the game button is the single source of truth
-      // document.addEventListener('visibilitychange', function(){ if(document.hidden){ try{ if(window.Howler) Howler.mute(true); }catch(e){} } });
-    })();
+      };
+      document.addEventListener('click', handler, true);
+      document.addEventListener('touchend', handler, true);
+    }
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindMolocoCTA); else bindMolocoCTA();
   })();</script>
-  <style>
-    /* Safe-area helpers */
-    .cta-fixed-bottom{ position: fixed; left: 0; right: 0; bottom: max(5vh, env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); z-index: 1000; }
-    body.win-open .cta-fixed-bottom, body:not(.game-started) .cta-fixed-bottom{ display: none; }
-    /* NOTE: intentionally removed .blocker helpers to avoid clashing with game's .blocker class */
-    html, body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-    img { -webkit-user-drag: none; }
-  </style>
 
 </head>
 <body>
@@ -2369,6 +2295,10 @@ function formatWinMult(v) {
   if (v >= 10000) return v.toExponential(1);
   const decimals = v >= 100 ? 1 : (v >= 10 ? 2 : 3);
   return v.toFixed(decimals).replace(/\.?0+$/, "");
+}
+function roundUpToEven(v) {
+  const n = Math.ceil(Math.max(0, v));
+  return n % 2 === 0 ? n : n + 1;
 }
 function formatEUR(v) {
   const val = Math.max(0, v);
@@ -3063,7 +2993,7 @@ function showEndScene(source = "withdraw") {
   void startFinalSequence(source);
 }
 
-const CTA_DEFAULT_URL = "https://apps.apple.com/ru/app/id6747075934";
+const CTA_DEFAULT_URL = "";
 function getCtaUrl() {
   return window.clickTag || window.STORE_URL || CTA_DEFAULT_URL;
 }
@@ -3089,7 +3019,7 @@ function ctaDoOpen(source = "cta") {
 
   try {
     if (u && window.mraid && typeof window.mraid.open === "function") {
-      window.mraid.open(u);
+      window.openStore(u);
       return;
     }
     if (u) openStore(u, "_blank");
@@ -3231,7 +3161,10 @@ function applyLifeDelta(delta) {
     S.livesLockedAtZero = true;
   }
   if (!S.flying || S.crashed || S.cashedOut || S.landing.active) return;
-  if (S.lives <= 0) startCriticalFall();
+  if (S.lives <= 0) {
+    crash();
+    return;
+  }
 }
 function triggerShake(amp, dur, freq) {
   S.shake.amp = amp;
@@ -4645,7 +4578,7 @@ function updateFloats(dt) {
    ═══════════════════════════════════════════════════════════ */
 function updateShipRock(dt) {
   const rock = S.shipRock;
-  rock.t += dt * 2.5;
+  rock.t += dt * 5;
   // Two overlapping slow sine waves for organic, natural water rocking
   const a1 = Math.sin(rock.t * 0.38) * 0.62;
   const a2 = Math.sin(rock.t * 0.61 + 1.4) * 0.38;
@@ -4736,8 +4669,9 @@ function update(dt) {
     applyBounds();
     updateLandingArm();
     const lowHpNoLanding = S.lives <= C.criticalFailLives;
-    // At HP <= 1 landing is disabled; water/deck crash is only allowed in this low-HP zone.
+    // At HP <= 1 landing is disabled; entering landing window should crash immediately.
     if (!S.failing && S.landingArmed && !lowHpNoLanding && isPlaneLandingOnShip()) cashout();
+    else if (!S.failing && lowHpNoLanding && isPlaneLandingOnShip()) crash();
     else if (S.failing && planeContactY() >= failingCrashWaterY()) crash();
     else if (!S.failing && lowHpNoLanding && planeContactY() >= collWaterY()) crash();
     else if (!S.failing && lowHpNoLanding && isPlaneOverShipDeckAndHitting()) crash();
@@ -5158,7 +5092,7 @@ function drawStakeTag() {
   const p = S.plane;
   const x = snapRender(p.x);
   const y = snapRender(p.y - p.h * PIVOT_TOP + 6);
-  const txt = formatEUR(S.stakeEUR);
+  const txt = formatEUR(roundUpToEven(S.stakeEUR));
 
   ctx.save();
   ctx.translate(x, y);
@@ -5167,7 +5101,7 @@ function drawStakeTag() {
   ctx.textBaseline = "middle";
   ctx.lineWidth = 4.8;
   ctx.strokeStyle = "rgba(7,20,58,0.85)";
-  ctx.fillStyle = "#ffe88a";
+  ctx.fillStyle = "#ffeb00";
   ctx.strokeText(txt, 0, 0);
   ctx.fillText(txt, 0, 0);
   ctx.restore();
